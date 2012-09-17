@@ -1,0 +1,12 @@
+Tool to log user interactions with computer.
+
+./CAPTURE list
+- Lists input devices available through X11 display
+
+./CAPTURE <id> <id> ...
+- Connect to multiple devices to log interactions
+
+Developed for quantifying user interaction in terms of keyboard and mouse events
+- Keyboard events are logged once between mouse events
+- Mouse events are logged as movement in pixels around the screen on mouse up or down
+
