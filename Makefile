@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -c -Wall -pedantic -Wextra -std=c99
-LDFLAGS = -lm -lX11 -lXi
+LDFLAGS = -lm -L/usr/X11/lib -lX11 -lXi
 
 INCDIR =  inc
 SRCDIR = src
