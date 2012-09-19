@@ -1,8 +1,9 @@
 #include "capture.h"
 
-void list_devices(Display *display)
+void list_devices(Display *display, XDeviceInfo *devices)
 {
 	int idx;
+	int num_devices;
 	if(devices == NULL) {
 		devices = XListInputDevices(display, &num_devices);
 	}
@@ -14,11 +15,11 @@ void list_devices(Display *display)
 	return;
 }
 
-void capture(Display *display, int argc, char *argv[])
+void capture(Display *display, XDeviceInfo *devices, int num_capture, int *capture_list)
 {
 	int idx;
 	int id;
-	XEventClass  event_list[5];
+	XEventClass event_list[5];
 	unsigned long screen;
 	Window root_win;
 	int number = 0;
@@ -28,16 +29,16 @@ void capture(Display *display, int argc, char *argv[])
 	screen = DefaultScreen(display);
 	root_win = RootWindow(display, screen);
 
-	for(idx=0;idx<argc;++idx) {
+	for(idx=0;idx<num_capture;++idx) {
 		XDeviceInfo *device_info = NULL;
 		XDevice *device = NULL;
 		XInputClassInfo *ip = NULL;
 		int i;
 
-		id = atoi(argv[idx]);
+		id = *(capture_list + idx);
 
 		/* Find this id with in the device list */
-		device_info = get_device_info(display, id);
+		device_info = get_device_info(display, id, devices);
 		if(device_info == NULL) {
 			fprintf(stderr, "Could not find device id: %d\n", id);
 			return;
@@ -88,9 +89,10 @@ void capture(Display *display, int argc, char *argv[])
 	return;
 }
 
-XDeviceInfo *get_device_info(Display *display, int id)
+XDeviceInfo *get_device_info(Display *display, int id, XDeviceInfo *devices)
 {
 	int idx;
+	int num_devices;
 	if(devices == NULL) {
 		devices = XListInputDevices(display, &num_devices);
 	}

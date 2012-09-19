@@ -8,9 +8,9 @@
 #include <X11/extensions/XInput.h>
 #include <string.h>
 
-void capture(Display *, int, char **);
-void list_devices(Display *);
-XDeviceInfo *get_device_info(Display *, int);
+void capture(Display *, XDeviceInfo *, int, int *);
+void list_devices(Display *, XDeviceInfo *);
+XDeviceInfo *get_device_info(Display *, int, XDeviceInfo *);
 
 #define INVALID_EVENT_TYPE -1
 
@@ -20,8 +20,7 @@ int button_release_type;
 int key_press_type;
 int key_release_type;
 
-XDeviceInfo *devices;
-int num_devices;
+/* Removes unused variable warnings. */
+#define UNUSED(_var) ((void)(_var))
 
 #endif
-

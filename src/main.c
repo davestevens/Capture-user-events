@@ -3,22 +3,32 @@
 
 #include <time.h>
 #include <math.h>
+#include <signal.h>
+#include <stdlib.h>
 
 typedef struct pos_t {
 	unsigned int x, y;
 } pos_t;
 
-void log_events(Display *);
-double distance(pos_t, pos_t);
-unsigned int abs_diff(int, int);
+void log_events(Display *, FILE *);
+double distance(pos_t *, pos_t *);
+void ctrl_c(int);
+
+volatile unsigned char comp;
 
 int main(int argc, char *argv[])
 {
-	Display *display;
+	Display *display = NULL;
+	XDeviceInfo *devices = NULL;
+	FILE *output = stdout;
 	int idx;
+	unsigned long start, end;
+	unsigned int num_capture = 0;
+	int *capture_list = NULL;
 
-	devices = NULL;
-	num_devices = 0;
+	comp = 0;
+	/* Capture ctrl+c */
+	signal(SIGINT, ctrl_c);
 
 	display = XOpenDisplay(NULL);
 	if(display == NULL) {
@@ -27,7 +37,7 @@ int main(int argc, char *argv[])
 	}
 
 	if(argc == 1) {
-		list_devices(display);
+		list_devices(display, devices);
 		XCloseDisplay(display);
 		return 0;
 	}
@@ -35,88 +45,131 @@ int main(int argc, char *argv[])
 	/* Display list of available devices */
 	for(idx=1;idx<argc;++idx) {
 		if(!strncmp("list", argv[idx], 4)) {
-			list_devices(display);
+			list_devices(display, devices);
 			XCloseDisplay(display);
 			return 0;
 		}
+		else if(!strncmp("-o", argv[idx], 2)) {
+			output = fopen(argv[++idx], "w");
+			if(output == NULL) {
+				fprintf(stderr, "Could not open file (%s)\n", argv[idx]);
+				return -1;
+			}
+		}
+		else {
+			/* Push to list of devices to capture */
+			if(capture_list == NULL) {
+				capture_list = (int *)calloc(1, sizeof(int));
+			}
+			else {
+				capture_list = (int *)realloc(capture_list, (sizeof(int) * (num_capture+1)));
+			}
+			*(capture_list + num_capture++) = atoi(argv[idx]);
+		}
 	}
 
-	/* Connect to multiple device */
-	capture(display, argc-1, &argv[1]);
-	log_events(display);
+	/* Connect to multiple device listed in *capture_list */
+	capture(display, devices, num_capture, capture_list);
 
+	start = time(NULL);
+	log_events(display, output);
+	end = time(NULL);
+
+	fprintf(output, "Overall time: %ld seconds\n", (end - start));
+
+	if(output != stdout) {
+		fclose(output);
+	}
+
+	/*
+	  Clean up
+	 */
+	free(capture_list);
 	XCloseDisplay(display);
 	XFreeDeviceList(devices);
 	return 0;
 }
 
-void log_events(Display *display)
+/*
+  Read event list and display events desired
+ */
+void log_events(Display *display, FILE *output)
 {
 	XEvent event;
-	pos_t pos, cur = {0, 0};
-	unsigned char mouse_release = 0;
 	unsigned char keyboard_event = 0;
+	pos_t mouse = {0, 0};
+	pos_t mouse_down = {0, 0};
 
 	printf("Capturing user input\n");
-	fflush(stdout);
+	fprintf(output, "time, event, extra\n");
+	fflush(output);
 
-	while(1) {
+	while(!comp) {
 		XNextEvent(display, &event);
 
 		if(event.type == motion_type) {
 			XDeviceMotionEvent *m = (XDeviceMotionEvent *)&event;
-			pos.x = m->axis_data[0];
-			pos.y = m->axis_data[1];
-			if(mouse_release) {
-				double dis = distance(cur, pos);
-				/* Hide some of the output
-				   Ignore any movements less than 2 pixels
-				*/
-				if(dis > 2.0F) {
-					printf("(%ld) Mouse event: %lf\n", time(NULL), dis);
-					fflush(stdout);
-					cur.x = pos.x;
-					cur.y = pos.y;
-				}
-				mouse_release = 0;
-			}
+			mouse.x = m->axis_data[0];
+			mouse.y = m->axis_data[1];
 		}
 		else if(event.type == button_press_type) {
-			/* Work out mouse travel */
-			printf("(%ld) Mouse event: %lf\n", time(NULL), distance(cur, pos));
-			fflush(stdout);
-			cur.x = pos.x;
-			cur.y = pos.y;
+			double dis = distance(&mouse_down, &mouse);
 			keyboard_event = 0;
+			if(dis > 2.0F) {
+				fprintf(output, "%ld, move, %lf\n", time(NULL), dis);
+				mouse_down.x = mouse.x;
+				mouse_down.y = mouse.y;
+				fflush(output);
+			}
 		}
 		else if(event.type == button_release_type) {
-			mouse_release = 1;
+			/*
+			  XDeviceButtonEvent *b = (XDeviceButtonEvent *)&event;
+			*/
+			double dis = distance(&mouse_down, &mouse);
+			fprintf(output, "%ld, mouse, \n", time(NULL));
 			keyboard_event = 0;
-			/*XDeviceButtonEvent *b = (XDeviceButtonEvent *)&event;*/
+			if(dis > 2.0F) {
+				fprintf(output, "%ld, drag, %lf\n", time(NULL), distance(&mouse_down, &mouse));
+				mouse_down.x = mouse.x;
+				mouse_down.y = mouse.y;
+			}
+			fflush(output);
 		}
 		else if((event.type == key_press_type)
 		        ||
 		        (event.type == key_release_type)) {
-			/*XDeviceKeyEvent *k = (XDeviceKeyEvent *)&event;*/
+			/*
+			  XDeviceKeyEvent *k = (XDeviceKeyEvent *)&event;
+			*/
 			if(!keyboard_event) {
-				printf("(%ld) Keyboard event\n", time(NULL));
-				fflush(stdout);
+				fprintf(output, "%ld, keyboard, \n", time(NULL));
+				fflush(output);
 				keyboard_event = 1;
 			}
 		}
-		else {
-			/*printf("Unknown\n");*/
-		}
+		/*
+		  Ignore other event types
+		*/
 	}
+	printf("/Capturing user input\n");
 	return;
 }
 
-double distance(pos_t a, pos_t b)
+/*
+  Distance between two points
+ */
+double distance(pos_t *a, pos_t *b)
 {
-	return sqrt(pow(abs_diff(a.x, b.x), 2) + pow(abs_diff(a.y, b.y), 2));
+	return sqrt(pow(abs(a->x - b->x), 2) + pow(abs(a->y - b->y), 2));
 }
 
-unsigned int abs_diff(int a, int b)
+/*
+  Capture ctrl+c to gracefully close program down
+ */
+void ctrl_c(int signal)
 {
-	return (a > b) ? (a - b) : (b - a);
+	UNUSED(signal);
+	comp = 1;
+	return;
 }
